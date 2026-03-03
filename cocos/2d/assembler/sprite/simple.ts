@@ -53,7 +53,7 @@ class Simple implements IAssembler {
     updateRenderData (sprite: Sprite): void {
         const frame = sprite.spriteFrame;
 
-        if(frame && !cclegacy.isValid(frame)) {
+        if(frame && !cclegacy.isValid(frame, true)) {
             console.error(`[CUSTOM ENGINE] Skip invalid update ${ frame.uuid }`);
             sprite.renderData.vertDirty = true; // mb not need...
             return;
