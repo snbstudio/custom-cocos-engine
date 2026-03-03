@@ -205,7 +205,7 @@ class Simple implements IAssembler {
             }
         }
         else {
-            console.error(`[CUSTOM ENGINE] vData or uv is null for ${ sprite.name }`);
+            console.error(`[CUSTOM ENGINE] vData or uv is null for ${ sprite.spriteFrame.uuid }`);
         }
     }
 
