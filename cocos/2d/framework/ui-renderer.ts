@@ -468,6 +468,12 @@ export class UIRenderer extends Renderer {
      */
     public updateRenderer (): void {
         const assembler = this._assembler;
+
+        if(!this.isValid) {
+            console.error(`[CUSTOM ENGINE] Skip invalid update for ${this.name}`);
+            return
+        }
+        
         if (assembler && assembler.updateRenderData) {
             assembler.updateRenderData(this);
         }
