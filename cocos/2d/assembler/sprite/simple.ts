@@ -195,6 +195,12 @@ class Simple implements IAssembler {
         const uv = sprite.spriteFrame.uv;
         const stride = renderData.floatStride;
         let uvOffset = 3;
+
+        if(vData == null) {
+            console.error(`[CUSTOM ENGINE] vData is null for ${ sprite.name }`);
+            return;
+        }
+        
         for (let i = 0; i < renderData.dataLength; ++i) {
             const index = i * 2;
             vData[uvOffset] = uv[index];
