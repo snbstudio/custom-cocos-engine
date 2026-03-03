@@ -469,7 +469,7 @@ export class UIRenderer extends Renderer {
     public updateRenderer (): void {
         const assembler = this._assembler;
 
-        if(!this.isValid) {
+        if(cclegacy.isValid(this, true)) {
             console.error(`[CUSTOM ENGINE] Skip invalid update for ${this.name}`);
             return
         }
