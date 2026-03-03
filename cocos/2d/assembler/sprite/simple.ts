@@ -162,6 +162,15 @@ class Simple implements IAssembler {
         } else {
             const frame = sprite.spriteFrame!;
             const originSize = frame.originalSize;
+
+            if(originSize) {
+            }
+            else {
+                console.error(`[CUSTOM ENGINE] Bad vertex in ${ sprite.spriteFrame.uuid }`);
+                renderData.vertDirty = true;
+                return;
+            }
+            
             const ow = originSize.width;
             const oh = originSize.height;
             const scaleX = cw / ow;
