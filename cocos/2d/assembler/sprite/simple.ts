@@ -52,6 +52,12 @@ class Simple implements IAssembler {
     updateRenderData (sprite: Sprite): void {
         const frame = sprite.spriteFrame;
 
+        if(!frame.isValid) {
+            console.error(`[CUSTOM ENGINE] Skip invalid update ${ frame.uuid }`);
+            sprite.renderData.vertDirty = true; // mb not need...
+            return;
+        }
+
         dynamicAtlasManager.packToDynamicAtlas(sprite, frame);
         this.updateUVs(sprite);// dirty need
         //this.updateColor(sprite);// dirty need
