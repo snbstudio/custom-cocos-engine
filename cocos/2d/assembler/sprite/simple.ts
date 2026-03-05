@@ -33,6 +33,7 @@ import type { IBatcher } from '../../renderer/i-batcher';
 import type { Sprite } from '../../components';
 import { dynamicAtlasManager } from '../../utils/dynamic-atlas/atlas-manager';
 import type { StaticVBChunk } from '../../renderer/static-vb-accessor';
+import { cclegacy } from '../../../core';
 
 const QUAD_INDICES = Uint16Array.from([0, 1, 2, 1, 3, 2]);
 
@@ -51,6 +52,28 @@ class Simple implements IAssembler {
 
     updateRenderData (sprite: Sprite): void {
         const frame = sprite.spriteFrame;
+
+        /*
+            In some cases related to the release and loading of resources (including the same ones),
+            errors in accessing non-existent objects occur in the internal logic of the rendering engine,
+            for example:
+                simple.ts:200 Uncaught (in promise) TypeError: Cannot read properties of null (reading '0')
+                at e.updateUVs (simple.ts:200:31)
+                at i._updateUVs (sprite.ts:687:29)
+                at i.OnEnable (sprite.ts:497:18)
+
+            This check helps to cut off the logic leading to the error 
+
+            More information here:
+            - https://app.asana.com/0/home/1210963380289889/1213494701534247
+            - https://github.com/cocos/cocos-engine/issues/17685
+            - https://github.com/snbstudio/custom-cocos-engine
+        */
+        if(frame && !cclegacy.isValid(frame, true)) {
+            console.warn(`[CUSTOM ENGINE] invalid update detected at 'updateRenderData', bad spriteFrame uuid: ${ frame.uuid }`);
+            if(sprite.renderData) sprite.renderData.vertDirty = true;
+            return;
+        }
 
         dynamicAtlasManager.packToDynamicAtlas(sprite, frame);
         this.updateUVs(sprite);// dirty need
@@ -195,12 +218,32 @@ class Simple implements IAssembler {
         const uv = sprite.spriteFrame.uv;
         const stride = renderData.floatStride;
         let uvOffset = 3;
-        for (let i = 0; i < renderData.dataLength; ++i) {
-            const index = i * 2;
-            vData[uvOffset] = uv[index];
-            vData[uvOffset + 1] = uv[index + 1];
-            uvOffset += stride;
+
+        /*
+            In some cases related to the release and loading of resources (including the same ones),
+            errors in accessing non-existent objects occur in the internal logic of the rendering engine,
+            for example:
+                simple.ts:200 Uncaught (in promise) TypeError: Cannot read properties of null (reading '0')
+                at e.updateUVs (simple.ts:200:31)
+                at i._updateUVs (sprite.ts:687:29)
+                at i.OnEnable (sprite.ts:497:18)
+
+            This check helps to cut off the logic leading to the error 
+
+            More information here:
+            - https://app.asana.com/0/home/1210963380289889/1213494701534247
+            - https://github.com/cocos/cocos-engine/issues/17685
+            - https://github.com/snbstudio/custom-cocos-engine
+        */
+        if(vData && uv) {
+            for (let i = 0; i < renderData.dataLength; ++i) {
+                const index = i * 2;
+                vData[uvOffset] = uv[index];
+                vData[uvOffset + 1] = uv[index + 1];
+                uvOffset += stride;
+            }
         }
+        else console.error(`[CUSTOM ENGINE] invalid update detected at 'updateUVs', bad spriteFrame uuid: ${ sprite.spriteFrame.uuid }`);
     }
 
     updateColor (sprite: Sprite): void {
