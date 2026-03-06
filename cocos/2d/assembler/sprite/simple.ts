@@ -243,7 +243,7 @@ class Simple implements IAssembler {
                 uvOffset += stride;
             }
         }
-        else console.error(`[CUSTOM ENGINE] invalid update detected at 'updateUVs', bad spriteFrame uuid: ${ sprite.spriteFrame.uuid }`);
+        else console.warn(`[CUSTOM ENGINE] invalid update detected at 'updateUVs', bad spriteFrame uuid: ${ sprite.spriteFrame.uuid }`);
     }
 
     updateColor (sprite: Sprite): void {
