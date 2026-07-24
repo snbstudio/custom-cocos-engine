@@ -352,7 +352,24 @@ void UrlAudioPlayer::destroy() {
     if (!*_isDestroyed) {
         *_isDestroyed = true;
         ALOGV("UrlAudioPlayer::destroy() %p", this);
-        SL_DESTROY_OBJ(_playObj);
+
+        // SL_DESTROY_OBJ() (-> IObject_Destroy() -> android::GenericPlayer::preDestroy()
+        // -> android::ALooper::stop() -> android::Thread::requestExitAndWait()) can block
+        // for an unbounded time waiting for the underlying OpenSL ES audio thread to exit.
+        // Running it synchronously here can stall whatever thread called stop()/destroy() --
+        // including the engine's own command-processing thread, which is the same thread
+        // Activity.onPause() blocks on waiting for an ack, producing multi-second ANRs
+        // (cocos-engine issue #17511; see also the never-merged PR #17786 which only added
+        // a mutex around this same blocking call without actually removing the block).
+        // The underlying OpenSL object is independent of this wrapper's lifetime (the SL
+        // runtime manages it by handle), so it's safe to tear it down on a short-lived
+        // background thread instead of blocking the caller. `delete this` still happens
+        // synchronously right after this call, as before.
+        SLObjectItf playObjToDestroy = _playObj;
+        std::thread([playObjToDestroy]() {
+            SL_DESTROY_OBJ(playObjToDestroy);
+        }).detach();
+
         ALOGV("UrlAudioPlayer::destroy end");
     }
 }

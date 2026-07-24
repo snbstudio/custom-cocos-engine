@@ -61,6 +61,17 @@ AudioPlayer::~AudioPlayer() {
     }
 }
 
+namespace {
+// Upper bound on how long AudioPlayer::destroy() will block the calling thread waiting on
+// the audio cache / rotate-buffer thread / AL buffer draining below. These waits used to be
+// unbounded, which could stall the calling thread indefinitely (including the main thread
+// during applicationWillTerminate/didEnterBackground-triggered audio teardown -- the iOS
+// analogue of the Android ANR investigated in cocos-engine issues #17511/#19176/#19178).
+// A stuck audio subsystem is rare, so this cap should essentially never be hit in practice;
+// it just turns a possible multi-second freeze into a bounded, short one.
+constexpr std::chrono::milliseconds AUDIO_PLAYER_DESTROY_MAX_WAIT{300};
+} // namespace
+
 void AudioPlayer::destroy() {
     if (_isDestroyed)
         return;
@@ -68,6 +79,8 @@ void AudioPlayer::destroy() {
     ALOGVV("AudioPlayer::destroy begin, id=%u", _id);
 
     _isDestroyed = true;
+
+    const auto destroyDeadline = std::chrono::steady_clock::now() + AUDIO_PLAYER_DESTROY_MAX_WAIT;
 
     do {
         if (_audioCache != nullptr) {
@@ -77,6 +90,10 @@ void AudioPlayer::destroy() {
             }
 
             while (!_audioCache->_isLoadingFinished) {
+                if (std::chrono::steady_clock::now() >= destroyDeadline) {
+                    ALOGW("AudioPlayer::destroy, id=%u, timed out waiting for cache to finish loading!", _id);
+                    break;
+                }
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
         }
@@ -89,34 +106,50 @@ void AudioPlayer::destroy() {
             if (_rotateBufferThread != nullptr) {
                 while (!_isRotateThreadExited) {
                     _sleepCondition.notify_one();
+                    if (std::chrono::steady_clock::now() >= destroyDeadline) {
+                        ALOGW("AudioPlayer::destroy, id=%u, timed out waiting for rotate buffer thread to exit!", _id);
+                        break;
+                    }
                     std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 }
 
-                if (_rotateBufferThread->joinable()) {
-                    _rotateBufferThread->join();
-                }
+                if (_isRotateThreadExited) {
+                    if (_rotateBufferThread->joinable()) {
+                        _rotateBufferThread->join();
+                    }
 
-                delete _rotateBufferThread;
-                _rotateBufferThread = nullptr;
-                ALOGVV("rotateBufferThread exited!");
+                    delete _rotateBufferThread;
+                    _rotateBufferThread = nullptr;
+                    ALOGVV("rotateBufferThread exited!");
 
 #if CC_TARGET_PLATFORM == CC_PLATFORM_IOS
-                // some specific OpenAL implement defects existed on iOS platform
-                // refer to: https://github.com/cocos2d/cocos2d-x/issues/18597
-                ALint sourceState;
-                ALint bufferProcessed = 0;
-                alGetSourcei(_alSource, AL_SOURCE_STATE, &sourceState);
-                if (sourceState == AL_PLAYING) {
-                    alGetSourcei(_alSource, AL_BUFFERS_PROCESSED, &bufferProcessed);
-                    while (bufferProcessed < QUEUEBUFFER_NUM) {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                    // some specific OpenAL implement defects existed on iOS platform
+                    // refer to: https://github.com/cocos2d/cocos2d-x/issues/18597
+                    ALint sourceState;
+                    ALint bufferProcessed = 0;
+                    alGetSourcei(_alSource, AL_SOURCE_STATE, &sourceState);
+                    if (sourceState == AL_PLAYING) {
                         alGetSourcei(_alSource, AL_BUFFERS_PROCESSED, &bufferProcessed);
+                        while (bufferProcessed < QUEUEBUFFER_NUM) {
+                            if (std::chrono::steady_clock::now() >= destroyDeadline) {
+                                ALOGW("AudioPlayer::destroy, id=%u, timed out waiting for AL buffers to process!", _id);
+                                break;
+                            }
+                            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                            alGetSourcei(_alSource, AL_BUFFERS_PROCESSED, &bufferProcessed);
+                        }
+                        alSourceUnqueueBuffers(_alSource, QUEUEBUFFER_NUM, _bufferIds);
+                        CHECK_AL_ERROR_DEBUG();
                     }
-                    alSourceUnqueueBuffers(_alSource, QUEUEBUFFER_NUM, _bufferIds);
-                    CHECK_AL_ERROR_DEBUG();
-                }
-                ALOGVV("UnqueueBuffers Before alSourceStop");
+                    ALOGVV("UnqueueBuffers Before alSourceStop");
 #endif
+                } else {
+                    // Timed out before the rotate thread exited: it's not safe to join() (it
+                    // may run long past this call) or delete the std::thread while it's still
+                    // joinable, so leak the (tiny) std::thread wrapper here rather than risk a
+                    // std::terminate from destroying a joinable thread, or blocking further.
+                    ALOGW("AudioPlayer::destroy, id=%u, leaking rotate buffer thread wrapper after timeout!", _id);
+                }
             }
         }
     } while (false);
