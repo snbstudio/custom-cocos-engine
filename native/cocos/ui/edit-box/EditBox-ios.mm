@@ -193,6 +193,26 @@ CGRect getSafeAreaRect() {
     return viewRect;
 }
 
+// Since iOS 26 (Liquid Glass) a toolbar lays out custom views with Auto Layout and ignores their frame,
+// so the input field shrinks to its intrinsic size. Pin the size with constraints, reusing them on re-show.
+void setInputSizeConstraint(UIView *view, NSLayoutAttribute attribute, NSString *identifier, CGFloat value) {
+    for (NSLayoutConstraint *constraint in view.constraints) {
+        if ([constraint.identifier isEqualToString:identifier]) {
+            constraint.constant = value;
+            return;
+        }
+    }
+    NSLayoutConstraint *constraint = [NSLayoutConstraint constraintWithItem:view
+                                                                  attribute:attribute
+                                                                  relatedBy:NSLayoutRelationEqual
+                                                                     toItem:nil
+                                                                  attribute:NSLayoutAttributeNotAnAttribute
+                                                                 multiplier:1
+                                                                   constant:value];
+    constraint.identifier = identifier;
+    constraint.active = YES;
+}
+
 //TODO: Get hash with different type of showInfo, for example different inputAccessoryView
 NSString* getTextInputType(const cc::EditBox::ShowInfo* showInfo) {
     return showInfo->isMultiline?@"textView":@"textField";
@@ -367,11 +387,12 @@ static EditboxManager *instance = nil;
         }
         totalItemsWidth += ITEM_MARGIN_WIDTH;
     }
-    [[textViewBarButtonItem customView]
-        setFrame:CGRectMake(0,
-                            0,
-                            getSafeAreaRect().size.width - totalItemsWidth,
-                            getTextInputHeight(g_isMultiline))];
+    CGFloat inputWidth = getSafeAreaRect().size.width - totalItemsWidth;
+    CGFloat inputHeight = getTextInputHeight(g_isMultiline);
+    UIView *inputView = [textViewBarButtonItem customView];
+    [inputView setFrame:CGRectMake(0, 0, inputWidth, inputHeight)];
+    setInputSizeConstraint(inputView, NSLayoutAttributeWidth, @"cc.editbox.toolbar.width", inputWidth);
+    setInputSizeConstraint(inputView, NSLayoutAttributeHeight, @"cc.editbox.toolbar.height", inputHeight);
     return textViewBarButtonItem;
 }
 - (void) addInputAccessoryViewForTextView: (InputBoxPair*)inputbox
