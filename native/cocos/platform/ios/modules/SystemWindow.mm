@@ -52,9 +52,17 @@ uintptr_t SystemWindow::getWindowHandle() const {
 }
 
 SystemWindow::Size SystemWindow::getViewSize() const {
+    if (_width > 0 && _height > 0) {
+        return Size{static_cast<float>(_width), static_cast<float>(_height)};
+    }
     auto dpr = BasePlatform::getPlatform()->getInterface<IScreen>()->getDevicePixelRatio();
     CGRect bounds = [[UIScreen mainScreen] bounds];
     return Size{static_cast<float>(bounds.size.width * dpr), static_cast<float>(bounds.size.height * dpr)};
+}
+
+void SystemWindow::setViewSize(uint32_t width, uint32_t height) {
+    _width = static_cast<int32_t>(width);
+    _height = static_cast<int32_t>(height);
 }
 
 } // namespace cc
