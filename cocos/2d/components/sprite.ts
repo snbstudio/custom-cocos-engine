@@ -28,7 +28,7 @@ import { BUILD, JSB, EDITOR } from 'internal:constants';
 import { SpriteAtlas } from '../assets/sprite-atlas';
 import { SpriteFrame, SpriteFrameEvent } from '../assets/sprite-frame';
 import { builtinResMgr } from '../../asset/asset-manager/builtin-res-mgr';
-import { Vec2, cclegacy, ccenum, clamp, warnID } from '../../core';
+import { Vec2, cclegacy, ccenum, clamp, warn, warnID } from '../../core';
 import { IBatcher } from '../renderer/i-batcher';
 import { UIRenderer, InstanceMaterialType } from '../framework/ui-renderer';
 import { PixelFormat } from '../../asset/assets/asset-enum';
@@ -36,6 +36,9 @@ import { TextureBase } from '../../asset/assets/texture-base';
 import { Material, RenderTexture } from '../../asset/assets';
 import { NodeEventType } from '../../scene-graph/node-event';
 import type { RenderData } from '../renderer/render-data';
+
+// Destroyed frames already reported by 'Sprite._render': it runs every frame, one warning per frame object is enough.
+const reportedDestroyedFrames = new WeakSet<SpriteFrame>();
 
 /**
  * @en
@@ -578,7 +581,34 @@ export class Sprite extends UIRenderer {
     }
 
     protected _render (render: IBatcher): void {
-        render.commitComp(this, this.renderData, this._spriteFrame, this._assembler, null);
+        /*
+            The same class of failure as the guards in 'updateUVs' / 'updateRenderData' (assembler/sprite/simple.ts):
+            the sprite frame was destroyed (released) while this sprite still references it, so its '_texture' is null
+            and the batcher dies on it, aborting the whole frame:
+                TypeError: Cannot read properties of null (reading 'getGFXTexture')
+                at SpriteFrame.getGFXTexture (sprite-frame.ts:779)
+                at Batcher2D.commitComp (batcher-2d.ts:472)
+                at Sprite._render (sprite.ts:581)
+
+            '_canRender' rejects such a frame too, but the render flag is cached and is not re-evaluated when a frame
+            is destroyed under a sprite that keeps it, so the check has to happen here. The sprite is skipped until
+            it gets a valid frame again.
+
+            More information here:
+            - https://github.com/cocos/cocos-engine/issues/17685
+            - https://github.com/snbstudio/custom-cocos-engine
+        */
+        const spriteFrame = this._spriteFrame;
+        if (spriteFrame && !cclegacy.isValid(spriteFrame, true)) {
+            if (!reportedDestroyedFrames.has(spriteFrame)) {
+                reportedDestroyedFrames.add(spriteFrame);
+                warn(`[CUSTOM ENGINE] invalid render detected at 'Sprite._render', bad spriteFrame uuid: ${spriteFrame.uuid}, `
+                    + `node: ${this.node.name}`);
+            }
+            return;
+        }
+
+        render.commitComp(this, this.renderData, spriteFrame, this._assembler, null);
     }
 
     protected _canRender (): boolean {
