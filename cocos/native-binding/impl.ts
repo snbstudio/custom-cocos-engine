@@ -100,7 +100,9 @@ if (NATIVE) {
         triggerEvent(eventName, arg) {
             const arr = this.eventMap.get(eventName);
             if (!arr) {
-                console.error(`${eventName} does not exist`);
+                // Not an error: the native side outlives the JS VM. game.restart() recreates the VM while
+                // native SDKs keep running, so an event can arrive before anyone has subscribed to it.
+                console.warn('native event has no listener:', eventName);
                 return;
             }
             arr.map((listener) => listener.call(null, arg));
