@@ -76,9 +76,7 @@ export class AudioContextAgent {
             const promise = this._context.decodeAudioData(audioData, (audioBuffer) => {
                 resolve(audioBuffer);
             }, (err) => {
-                // TODO: need to reject the error.
-                // eslint-disable-next-line no-console
-                console.error('failed to load Web Audio', err);
+                reject(err ?? new Error('decodeAudioData failed'));
             });
             promise?.catch(reject);  // Safari doesn't support the promise based decodeAudioData
         });
@@ -284,7 +282,7 @@ export class AudioPlayerWeb implements OperationQueueable {
                     audioContextAgent!.decodeAudioData(xhr.response).then((decodedAudioBuffer) => {
                         audioBufferManager.addCache(url, decodedAudioBuffer);
                         resolve(decodedAudioBuffer);
-                    }).catch((e) => { debug.warn('loadNative error', url, e); });
+                    }).catch((e) => { reject(new Error(`decode audio failed: ${url}, ${String(e)}`)); });
                 } else {
                     reject(new Error(`${errInfo}${xhr.status}(no response)`));
                 }
