@@ -206,10 +206,9 @@ void DownloaderApple::abort(const std::unique_ptr<IDownloadTask> &task) {
     self.taskDict = [NSMutableDictionary dictionary];
     _runningCount = 0;
 
-#if CC_PLATFORM == CC_PLATFORM_IOS 
-    // create backgroundSession for iOS to support background download
-    self.downloadSession = [self backgroundURLSession];
+    self.downloadSession = [self defaultURLSession];
 
+#if CC_PLATFORM == CC_PLATFORM_IOS
     // cancel and save last running tasks
     [self.downloadSession getTasksWithCompletionHandler:^(NSArray *dataTasks, NSArray *uploadTasks, NSArray *downloadTasks) {
         for (NSURLSessionDownloadTask *downloadTask in downloadTasks) {
@@ -227,24 +226,19 @@ void DownloaderApple::abort(const std::unique_ptr<IDownloadTask> &task) {
             }
         }
     }];
-#else
-    NSURLSessionConfiguration *defaultConfig = [NSURLSessionConfiguration defaultSessionConfiguration];
-    self.downloadSession = [NSURLSession sessionWithConfiguration:defaultConfig delegate:self delegateQueue:[NSOperationQueue mainQueue]]; 
 #endif
     return self;
 }
 
-#pragma mark - backgroundURLSession
-- (NSURLSession *)backgroundURLSession {
-    // use for backgroundSession global unique identifier, remove it if use singleton instance in the future.
-    static int sessionId = 0;
-    // Single thread delegate mode
-    // NSOperationQueue *queue = [[NSOperationQueue alloc] init];
-    // queue.maxConcurrentOperationCount = 1;
-    NSString* identifierStr = [NSString stringWithFormat:@"%s%d", "BackgroundDownloadIdentifier" , sessionId];
-    NSURLSessionConfiguration *backgroudConfig = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:identifierStr];
-    sessionId++;
-    return [NSURLSession sessionWithConfiguration:backgroudConfig delegate:self delegateQueue:[NSOperationQueue mainQueue]];
+#pragma mark - defaultURLSession
+// Not a background session: it retries a timed-out task instead of failing it, so a request to a silent server never
+// gave its slot back. One connection per task, so the request timeout counts from the moment the task really talks to
+// the network, not from its wait for a free connection.
+- (NSURLSession *)defaultURLSession {
+    NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+    config.timeoutIntervalForRequest = _hints.timeoutInSeconds;
+    config.HTTPMaximumConnectionsPerHost = (NSInteger)_hints.countOfMaxProcessingTasks;
+    return [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:[NSOperationQueue mainQueue]];
 }
 
 - (const cc::network::DownloaderHints &)getHints {

@@ -107,6 +107,7 @@ public class CocosDownloader {
                     .followRedirects(true)
                     .followSslRedirects(true)
                     .connectTimeout(timeoutInSeconds, TimeUnit.SECONDS)
+                    .readTimeout(timeoutInSeconds, TimeUnit.SECONDS)
                     .protocols(Collections.singletonList(Protocol.HTTP_1_1))
                     .build();
         } else {
