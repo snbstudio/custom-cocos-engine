@@ -43,6 +43,8 @@ interface IDownloadRequest {
     options: Record<string, any>;
     done: ((err: Error | null, data?: any) => void);
     handler: DownloadHandler;
+    maxConcurrency: number;
+    maxRequestsPerFrame: number;
 }
 
 const REGEX = /^(?:\w+:\/\/|\.+\/).+/;
@@ -441,7 +443,7 @@ export class Downloader {
             const done: ((err: Error | null, data?: any) => void) = (err, data): void => {
                 // when finish downloading, update _totalNum
                 this._totalNum--;
-                this._handleQueueInNextFrame(maxConcurrency, maxRequestsPerFrame);
+                this._handleQueueInNextFrame();
                 callback(err, data);
             };
 
@@ -451,10 +453,10 @@ export class Downloader {
                 this._totalNumThisPeriod++;
             } else {
                 // when number of request up to limitation, cache the rest
-                this._queue.push({ id, priority: options.priority || 0, url, options, done, handler });
+                this._queue.push({ id, priority: options.priority || 0, url, options, done, handler, maxConcurrency, maxRequestsPerFrame });
                 this._queueDirty = true;
 
-                if (this._totalNum < maxConcurrency) { this._handleQueueInNextFrame(maxConcurrency, maxRequestsPerFrame); }
+                if (this._totalNum < maxConcurrency) { this._handleQueueInNextFrame(); }
             }
         };
 
@@ -496,30 +498,33 @@ export class Downloader {
         }
     }
 
-    // handle the rest request in next period
-    private _handleQueue (maxConcurrency: number, maxRequestsPerFrame: number): void {
+    // handle the rest request in next period. Each queued request is started under its own limits, highest priority first;
+    // a request its limits hold back does not hold back the ones behind it.
+    private _handleQueue (): void {
         this._checkNextPeriod = false;
         this._updateTime();
-        while (this._queue.length > 0 && this._totalNum < maxConcurrency && this._totalNumThisPeriod < maxRequestsPerFrame) {
-            if (this._queueDirty) {
-                this._queue.sort((a, b): number => a.priority - b.priority);
-                this._queueDirty = false;
+        if (this._queueDirty) {
+            this._queue.sort((a, b): number => a.priority - b.priority);
+            this._queueDirty = false;
+        }
+        // a handler may finish synchronously and queue new requests: they are appended behind the cursor
+        for (let i = this._queue.length - 1; i >= 0; i--) {
+            const request = this._queue[i];
+            if (this._totalNum >= request.maxConcurrency || this._totalNumThisPeriod >= request.maxRequestsPerFrame) {
+                continue;
             }
-            const request = this._queue.pop();
-            if (!request) {
-                break;
-            }
+            this._queue.splice(i, 1);
             this._totalNum++;
             this._totalNumThisPeriod++;
             request.handler(urlAppendTimestamp(request.url, this.appendTimeStamp), request.options, request.done);
         }
 
-        this._handleQueueInNextFrame(maxConcurrency, maxRequestsPerFrame);
+        this._handleQueueInNextFrame();
     }
 
-    private _handleQueueInNextFrame (maxConcurrency: number, maxRequestsPerFrame: number): void {
+    private _handleQueueInNextFrame (): void {
         if (!this._checkNextPeriod && this._queue.length > 0) {
-            misc.callInNextTick(this._handleQueue.bind(this), maxConcurrency, maxRequestsPerFrame);
+            misc.callInNextTick(this._handleQueue.bind(this));
             this._checkNextPeriod = true;
         }
     }
