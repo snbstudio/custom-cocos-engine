@@ -35,7 +35,7 @@ const fsUtils = {
     initJsbDownloader (jsbDownloaderMaxTasks, jsbDownloaderTimeout) {
         jsb_downloader = new jsb.Downloader({
             countOfMaxProcessingTasks: jsbDownloaderMaxTasks || 32,
-            timeoutInSeconds: jsbDownloaderTimeout || 30,
+            timeoutInSeconds: jsbDownloaderTimeout || 10,
             tempFileNameSuffix: '.tmp',
         });
 
